@@ -8,10 +8,10 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.metrics.pairwise import cosine_similarity
 
-# ===== CONFIG =====
+# ===== CONFIGURAÇÃO DA PÁGINA =====
 st.set_page_config(page_title="N.I.C.A", page_icon="☀️")
 
-# ===== FUNÇÕES DE PROCESSAMENTO =====
+# ===== FUNÇÕES TÉCNICAS =====
 
 def limpar(texto):
     texto = texto.lower()
@@ -20,22 +20,24 @@ def limpar(texto):
 
 def ler_pdf_local(caminho):
     texto = ""
-    try:
-        with open(caminho, "rb") as arquivo:
-            leitor = PyPDF2.PdfReader(arquivo)
-            for pagina in leitor.pages:
-                text_extracted = pagina.extract_text()
-                if text_extracted:
-                    texto += text_extracted + " "
-        return limpar(texto)
-    except FileNotFoundError:
-        return ""
+    if os.path.exists(caminho):
+        try:
+            with open(caminho, "rb") as arquivo:
+                leitor = PyPDF2.PdfReader(arquivo)
+                for pagina in leitor.pages:
+                    extracao = pagina.extract_text()
+                    if extracao:
+                        texto += extracao + " "
+            return limpar(texto)
+        except Exception as e:
+            st.error(f"Erro ao ler {caminho}: {e}")
+            return ""
+    return ""
 
-def dividir_texto(texto, tamanho=500):
+def dividir_texto(texto, tamanho=600):
     return [texto[i:i+tamanho] for i in range(0, len(texto), tamanho)]
 
 def buscar_resposta(pergunta, base, vectorizer):
-    if not base: return "Documento não encontrado na base."
     pergunta_vec = vectorizer.transform([pergunta])
     base_vec = vectorizer.transform(base)
     similaridades = cosine_similarity(pergunta_vec, base_vec)
@@ -48,32 +50,34 @@ def falar(texto):
         tts.save(fp.name)
         return fp.name
 
-# ===== CARREGAMENTO AUTOMÁTICO (SEM UPLOAD) =====
+# ===== CARREGAMENTO DOS DOCUMENTOS (GitHub) =====
 
-# Certifique-se que esses arquivos estão no seu GitHub na mesma pasta do app.py
-calendario_raw = ler_pdf_local("CALENDARIO-ACADEMICO-2026.pdf")
-ppc_raw = ler_pdf_local("PPC.pdf") # Ajuste o nome se necessário
+# Nomes exatos dos arquivos que você deve subir no repositório:
+doc_calendario = ler_pdf_local("CALENDARIO-ACADEMICO-2026.pdf")
+doc_ppc = ler_pdf_local("PPC aprovada_no_colegiado_28_de_abril.pdf")
+doc_tcc = ler_pdf_local("Regimento-de-TCC Hotelaria.pdf")
 
-# ===== TREINAMENTO DO MODELO =====
+# ===== INTELIGÊNCIA / TREINAMENTO =====
 
-perguntas = [
-    "quais materias tem no curso","lista de disciplinas","grade curricular","grade do curso",
-    "quando começa o semestre","prazo de matrícula","quando posso trancar","calendario",
-    "como funciona o curso","qual objetivo do curso","estágio é obrigatório","ppc"
+# Adicionei gatilhos para TCC
+perguntas_treino = [
+    "calendario", "quando começam as aulas", "data de matricula", "feriado",
+    "ppc", "objetivo do curso", "grade curricular", "horas complementares",
+    "tcc", "como fazer o tcc", "quem pode ser orientador", "prazo do tcc", "banca"
 ]
-categorias = [
-    "matriz","matriz","matriz","matriz",
-    "calendario","calendario","calendario","calendario",
-    "ppc","ppc","ppc","ppc"
+categorias_treino = [
+    "calendario", "calendario", "calendario", "calendario",
+    "ppc", "ppc", "ppc", "ppc",
+    "tcc", "tcc", "tcc", "tcc", "tcc"
 ]
 
 @st.cache_resource
 def treinar_modelo():
-    vectorizer = TfidfVectorizer()
-    X = vectorizer.fit_transform(perguntas)
-    modelo = MultinomialNB()
-    modelo.fit(X, categorias)
-    return vectorizer, modelo
+    vec = TfidfVectorizer()
+    X = vec.fit_transform(perguntas_treino)
+    clf = MultinomialNB()
+    clf.fit(X, categorias_treino)
+    return vec, clf
 
 vectorizer, modelo = treinar_modelo()
 
@@ -82,34 +86,36 @@ vectorizer, modelo = treinar_modelo()
 st.markdown("## ☀️ N.I.C.A")
 st.markdown("### Núcleo de Inteligência e Conectividade Acadêmica")
 
-# Se você tiver a imagem, coloque-a na pasta e use o nome direto:
-# st.image("logo.png", width=100)
+pergunta = st.text_input("Como posso te ajudar com o curso de Hotelaria hoje?")
 
-pergunta = st.text_input("Olá! Sou o N.I.C.A. Como posso te ajudar hoje?")
-
-# ===== LÓGICA DE RESPOSTA =====
+# ===== PROCESSAMENTO DA RESPOSTA =====
 
 if pergunta:
-    # 1. Identifica a categoria da pergunta
+    # 1. Identifica o assunto
     categoria = modelo.predict(vectorizer.transform([pergunta]))[0]
     
-    # 2. Seleciona a base de texto correspondente
-    if categoria == "calendario" and calendario_raw:
-        base = dividir_texto(calendario_raw)
-    elif ppc_raw:
-        base = dividir_texto(ppc_raw)
+    # 2. Seleciona o texto bruto conforme o assunto
+    texto_alvo = ""
+    if categoria == "calendario":
+        texto_alvo = doc_calendario
+    elif categoria == "tcc":
+        texto_alvo = doc_tcc
     else:
-        base = []
+        texto_alvo = doc_ppc
 
-    # 3. Busca a resposta específica no texto do PDF
-    if base:
-        resposta = buscar_resposta(pergunta, base, vectorizer)
-        
-        st.markdown(f"**📌 Segundo o {categoria.upper()}:**")
-        st.write(resposta)
+    # 3. Se o documento existir, busca a resposta
+    if texto_alvo:
+        base_fragmentada = dividir_texto(texto_alvo)
+        resposta_final = buscar_resposta(pergunta, base_fragmentada, vectorizer)
 
-        # 🔊 VOZ
-        audio_file = falar(resposta[:300])
-        st.audio(audio_file)
+        st.markdown(f"**📌 Informação encontrada no {categoria.upper()}:**")
+        st.info(resposta_final)
+
+        # Áudio
+        audio_path = falar(resposta_final[:300])
+        st.audio(audio_path)
     else:
-        st.error("Erro: Arquivos PDF não encontrados no servidor. Verifique o repositório.")
+        st.error(f"O documento de {categoria} não foi encontrado no servidor. Verifique o GitHub.")
+
+# ===== RODAPÉ =====
+st.caption("N.I.C.A - Assistente Acadêmico Baseado em Documentos Oficiais.")
