@@ -1,9 +1,4 @@
 streamlit
-numpy
-pandas
-scipy
-plotly
-streamlit
 PyPDF2
 gTTS
 scikit-learn
