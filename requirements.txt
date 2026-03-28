@@ -3,3 +3,4 @@ numpy
 pandas
 scipy
 plotly
+pip install streamlit PyPDF2 gTTS scikit-learn
